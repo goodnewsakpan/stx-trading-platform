@@ -170,3 +170,99 @@
         (ok true)
     )
 )
+
+
+;; Private helper functions
+(define-private (exercise-call
+    (option {
+        creator: principal,
+        buyer: (optional principal),
+        option-type: uint,
+        strike-price: uint,
+        premium: uint,
+        expiry: uint,
+        btc-amount: uint,
+        is-active: bool,
+        is-executed: bool,
+        creation-height: uint
+    })
+    (holder principal))
+    (let
+        ((strike-amount (* (get strike-price option) (get btc-amount option))))
+        ;; Transfer strike price from holder to creator
+        (try! (stx-transfer? strike-amount holder (get creator option)))
+        ;; Transfer BTC from contract to holder
+        (as-contract (transfer-btc tx-sender holder (get btc-amount option)))
+    )
+)
+
+(define-private (exercise-put
+    (option {
+        creator: principal,
+        buyer: (optional principal),
+        option-type: uint,
+        strike-price: uint,
+        premium: uint,
+        expiry: uint,
+        btc-amount: uint,
+        is-active: bool,
+        is-executed: bool,
+        creation-height: uint
+    })
+    (holder principal))
+    (let
+        ((strike-amount (* (get strike-price option) (get btc-amount option))))
+        ;; Transfer strike price from creator to holder
+        (try! (stx-transfer? strike-amount (get creator option) holder))
+        ;; Transfer BTC from contract to creator
+        (as-contract (transfer-btc tx-sender (get creator option) (get btc-amount option)))
+    )
+)
+
+
+(define-private (update-user-options (user principal) (option-id uint) (is-creator bool))
+    (let
+        ((user-options (default-to 
+            { created: (list ), purchased: (list ) }
+            (map-get? UserOptions { user: user }))))
+        (if is-creator
+            (ok (map-set UserOptions
+                { user: user }
+                { created: (unwrap! (as-max-len? (append (get created user-options) option-id) u20) ERR-UNAUTHORIZED),
+                  purchased: (get purchased user-options) }))
+            (ok (map-set UserOptions
+                { user: user }
+                { created: (get created user-options),
+                  purchased: (unwrap! (as-max-len? (append (get purchased user-options) option-id) u20) ERR-UNAUTHORIZED) })))
+    )
+)
+
+
+
+;; Read-only functions
+(define-read-only (get-option (option-id uint))
+    (map-get? Options { option-id: option-id })
+)
+
+(define-read-only (get-btc-balance (holder principal))
+    (default-to { balance: u0 }
+        (map-get? BTCBalances { holder: holder }))
+)
+
+(define-read-only (get-user-options (user principal))
+    (default-to
+        { created: (list ), purchased: (list ) }
+        (map-get? UserOptions { user: user }))
+)
+
+;; Oracle functions
+(define-public (set-btc-price (price uint))
+    (begin
+        (asserts! (is-contract-owner) ERR-UNAUTHORIZED)
+        (var-set oracle-price price)
+        (ok true))
+)
+
+(define-read-only (get-btc-price)
+    (var-get oracle-price)
+)
